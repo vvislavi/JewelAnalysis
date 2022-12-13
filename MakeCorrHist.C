@@ -1,4 +1,5 @@
-R__ADD_INCLUDE_PATH("/disk/PublicMCTrees/CustomClasses_v2/");
+//R__ADD_INCLUDE_PATH("/disk/PublicMCTrees/CustomClasses_v2/");
+R__ADD_INCLUDE_PATH("/Users/vytautas/Stuff/Correlations/JewelAnalysis/CustomClasses_v2/");
 #include "Include.h"
 #include "TTree.h"
 #include "TFile.h"
@@ -29,7 +30,7 @@ SinglePool *sp;
 Double_t lPhi, lEta;
 TH3D *h3, *hMix;
 TH2D *hTrigPart;
-TH1D *h1;
+TH1D *h1, *hdEta;
 Int_t nMixEv=50;
 void RQT() { gROOT->ProcessLine(".q"); };
 Double_t *makeBins(vector<Double_t> inVals, Int_t &nBins) {
@@ -44,6 +45,7 @@ Double_t *makeBins(Double_t bMin, Double_t bMax, Int_t nBins) {
   return retb;
 };
 void fixPhi(Double_t &inPhi) { if(inPhi<-C_PI_HALF) inPhi+=C_TWOPI; else if(inPhi>C_PI_TH) inPhi-=C_TWOPI; };
+TH2* MakeDebugPlot();
 Bool_t Init(TString infile) {
   TFile *tf = new TFile(infile.Data(),"READ");
   if(!tf) return kFALSE;
@@ -59,6 +61,7 @@ Bool_t Init(TString infile) {
   h3 = new TH3D("CorrMatrix","Corr; pt; dphi; deta",NptBins,ptBins,NphiBins,phiBins,NetaBins,etaBins);
   hMix = new TH3D("MixEvent","Mix; pt; dphi; deta",NptBins,ptBins,NphiBins,phiBins,NetaBins,etaBins);
   hTrigPart = new TH2D("TriggerPart","Trigger Particle; dphi; deta",NphiBins,phiBins,NetaBins,etaBins);
+  hdEta = new TH1D("dNdeta","dNdeta",NetaBins,etaBins);
   h1 = new TH1D("TrigCount","TrigCount; cent; Nev",1,0,100);
   sp = new SinglePool(nMixEv); //keep nMixEv tracks from prev. events
   return kTRUE;
@@ -86,7 +89,7 @@ void MakeCorrHist(TString inFile) {
   for(Long64_t i=0; i<tent; i++) {
     tr->GetEntry(i);
     Int_t lInd = findLeadingTrack(8.,15.,lPhi,lEta);
-    if(lInd<0) continue;
+    if(lInd<0) {lPhi=0; lEta=0;};//continue;
     hTrigPart->Fill(lPhi>C_PI_TH?(lPhi-C_TWOPI):lPhi,lEta);
     Int_t V0MAmp = 10;
     h1->Fill(V0MAmp);
@@ -97,15 +100,16 @@ void MakeCorrHist(TString inFile) {
       Double_t tr_Phi = mpa->fPhi;
       Double_t tr_Eta = mpa->fEta;
       Double_t tr_Pt  = mpa->fPt;
+      hdEta->Fill(tr_Eta);
       Double_t dPhi=tr_Phi-lPhi;
       fixPhi(dPhi);
       h3->Fill(tr_Pt,dPhi,tr_Eta-lEta);
       //Fill mixed event
       if(!sp->IsReady()) continue;
       for(SPEnt j: sp->fVec) {
-	dPhi = tr_Phi-j.first;
-	fixPhi(dPhi);
-	hMix->Fill(tr_Pt,dPhi,tr_Eta-j.second);
+	       dPhi = tr_Phi-j.first;
+	       fixPhi(dPhi);
+	       hMix->Fill(tr_Pt,dPhi,tr_Eta-j.second);
       };
     };
     //Push to event pool -- pushing leading track isntead of all the shit, and calculate for every event
@@ -126,6 +130,26 @@ void MakeCorrHist(TString inFile) {
   hMix->Write();
   h1->Write();
   hTrigPart->Write();
+  TH2 *hDebug = MakeDebugPlot();
+  hDebug->Write();
+  hdEta->Write();
   fOut->Close();
   RQT();
 };
+TH2 *MakeDebugPlot() {
+  h3->GetXaxis()->SetRange(1,1);
+  TH2 *smev = (TH2*)h3->Project3D("zy");
+  smev = (TH2*)smev->Clone("Ratio");
+  smev->SetDirectory(0);
+  h3->GetXaxis()->SetRange(1,h3->GetNbinsX());
+  hMix->GetXaxis()->SetRange(1,1);
+  TH2 *mxev = (TH2*)hMix->Project3D("zy");
+  mxev = (TH2*)mxev
+
+  ->Clone("MixedProj");
+  mxev->SetDirectory(0);
+  hMix->GetXaxis()->SetRange(1,hMix->GetNbinsX());
+  smev->Divide(mxev);
+  delete mxev;
+  return smev;
+}
